@@ -5,10 +5,8 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import ChessGame from './components/ChessGame.vue'
-
-// No export default needed in script setup
 </script>
 
 <style>

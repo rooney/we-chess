@@ -15,18 +15,24 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref } from 'vue'
 import { TheChessboard } from 'vue3-chessboard'
 import 'vue3-chessboard/style.css'
 
-const position = ref('start')
-const orientation = ref('white')
-const gameOver = ref(false)
-const gameOverMessage = ref('')
+interface ChessMove {
+  fen: string
+  checkmate: boolean
+  stalemate: boolean
+  turn: 'w' | 'b'
+}
 
-const onMove = (move) => {
-  // Handle move
+const position = ref<string>('start')
+const orientation = ref<'white' | 'black'>('white')
+const gameOver = ref<boolean>(false)
+const gameOverMessage = ref<string>('')
+
+const onMove = (move: ChessMove): void => {
   position.value = move.fen
   if (move.checkmate) {
     gameOver.value = true
@@ -37,13 +43,13 @@ const onMove = (move) => {
   }
 }
 
-const resetGame = () => {
+const resetGame = (): void => {
   position.value = 'start'
   gameOver.value = false
   gameOverMessage.value = ''
 }
 
-const flipBoard = () => {
+const flipBoard = (): void => {
   orientation.value = orientation.value === 'white' ? 'black' : 'white'
 }
 </script>
