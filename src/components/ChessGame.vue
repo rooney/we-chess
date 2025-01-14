@@ -7,7 +7,7 @@
       @stalemate="onStalemate"
       :boardConfig="boardConfig"
       :reactive-config="true"
-      player-color="none"
+      :player-color="playerColor"
       />
     <div class="controls">
       <button @click="resetGame">Reset Game</button>
@@ -24,7 +24,7 @@ import type { Move, PieceSymbol, Square } from 'chess.js'
 import type { Api as ChessgroundApi } from 'chessground/api'
 import type { DrawShape } from 'chessground/draw'
 import type { Key } from 'chessground/types'
-import type { BoardApi as ChessboardApi, PieceColor } from 'vue3-chessboard'
+import type { BoardApi as ChessboardApi, MoveableColor, PieceColor } from 'vue3-chessboard'
 import { Chess, BISHOP, KING, KNIGHT, PAWN, QUEEN, ROOK } from 'chess.js'
 import { TheChessboard } from 'vue3-chessboard'
 import { ref, onMounted } from 'vue'
@@ -43,7 +43,7 @@ let engine: Engine = new Engine(game);
 
 let selectedTarget = '';
 function getPossibleMoves(): DrawShape[] {
-  console.log(selectedTarget)
+  console.log('I want to move to', selectedTarget)
   if (game.turn() === 'b') return [];
   return engine.getPossibleTargets().entries().map(([coord, froms]) => {
     return {
@@ -63,9 +63,8 @@ const onBoardCreated = (newBoard: ChessboardApi) => {
 
 const onSelect = (coord: Key) => {
   if (game.turn() === 'b') {
-    console.log(engine.options)
+    console.log('engine options', engine.options)
     engine.options.forEach((option) => {
-      console.log(option)
       if (coord === option) {
         board.move({from: coord, to: engine.target!})
       }
@@ -74,7 +73,7 @@ const onSelect = (coord: Key) => {
   }
   const options = engine.getPossibleTargets().get(coord)
   if (!options) return
-  if (options.length === 1) return board.move({ from: options[0], to: coord })
+  if (options.length === 1) {selectedTarget = ''; return board.move({ from: options[0], to: coord })}
   if (coord === selectedTarget) return choose(coord, options)
 
   let marks: DrawShape[] = options.flatMap(option => [{
@@ -98,7 +97,6 @@ const choose = (target: Key, options: Key[]) => {
 }
 
 const onMove = (move: Move|string) => {
-  console.log('move', move)
   const history = board?.getHistory(true);
   const moves = history?.map((move) => {
     if (typeof move === 'object') {
@@ -150,6 +148,8 @@ const boardConfig = {
     select: onSelect,
   }
 }
+
+const playerColor = 'none' as MoveableColor
 </script>
 
 <style scoped>
