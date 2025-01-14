@@ -1,10 +1,18 @@
 <template>
   <div class="chess-game">
     <TheChessboard
+      @board-created="onBoardCreated"
       @move="onMove"
       @checkmate="onCheckmate"
       @stalemate="onStalemate"
-      :boardConfig="{ coordinates: true }"
+      :reactive-config="true"
+      :boardConfig="{
+        drawable: {
+          enabled: true,
+          eraseOnClick: false,
+          autoShapes: getPossibleMoves(),
+        }
+      }"
     />
     <div class="controls">
       <button @click="resetGame">Reset Game</button>
@@ -17,9 +25,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
-import { Move } from 'chess.js'
-import { TheChessboard, type PieceColor } from 'vue3-chessboard'
+import { Chess, type Move } from 'chess.js'
+import { type Api as ChessgroundApi } from 'chessground/api'
+import type { DrawShape } from 'chessground/draw'
+import { ref, onMounted } from 'vue'
+import { type BoardApi as ChessboardApi, type BoardState, type PieceColor, TheChessboard } from 'vue3-chessboard'
 import 'vue3-chessboard/style.css'
 
 const position = ref<string>('start')
@@ -27,8 +37,26 @@ const orientation = ref<'white' | 'black'>('white')
 const gameOver = ref<boolean>(false)
 const gameOverMessage = ref<string>('')
 
+let game: Chess = new Chess()
+let board: ChessboardApi
+let ground: ChessgroundApi
+let state: BoardState
+
+function getPossibleMoves(): DrawShape[] {
+  if (game.turn() === 'b') return [];
+  return game.moves({ verbose: true }).map(move => ({ orig: move.to, brush: 'yellow' }));
+}
+
+const onBoardCreated = (newBoard: ChessboardApi) => {
+  board = newBoard
+  ground = (board as any).board
+  state = (board as any).boardState
+  game = (board as any).game
+}
+
 const onMove = (move: Move) => {
-  console.log('move', move);
+  console.log('move', move)
+  ground.setAutoShapes(getPossibleMoves())
 }
 
 const onCheckmate = (checkmatedColor: PieceColor) => {
@@ -50,6 +78,10 @@ const resetGame = (): void => {
 const flipBoard = (): void => {
   orientation.value = orientation.value === 'white' ? 'black' : 'white'
 }
+
+onMounted(() => {
+  console.log('Chess game component mounted')
+})
 </script>
 
 <style scoped>

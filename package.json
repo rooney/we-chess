@@ -9,9 +9,8 @@
     "type-check": "vue-tsc --noEmit"
   },
   "dependencies": {
-    "chessjs": "^0.0.1",
     "vue": "^3.3.4",
-    "vue3-chessboard": "^1.2.0"
+    "vue3-chessboard": "^1.3.3"
   },
   "devDependencies": {
     "@types/node": "^18.17.0",
