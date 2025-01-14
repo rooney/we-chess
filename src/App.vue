@@ -1,6 +1,6 @@
 <template>
   <div class="app">
-    <h1>Vue Chess Game</h1>
+    <h1>We Chess</h1>
     <ChessGame />
   </div>
 </template>
