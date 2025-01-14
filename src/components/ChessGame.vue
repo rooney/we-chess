@@ -11,9 +11,13 @@
           enabled: true,
           eraseOnClick: false,
           autoShapes: getPossibleMoves(),
+        },
+        events: {
+          select: function(coord) {console.log(coord)},
         }
       }"
-    />
+      player-color="white"
+      />
     <div class="controls">
       <button @click="resetGame">Reset Game</button>
       <button @click="flipBoard">Flip Board</button>
@@ -31,6 +35,7 @@ import type { DrawShape } from 'chessground/draw'
 import { ref, onMounted } from 'vue'
 import { type BoardApi as ChessboardApi, type BoardState, type PieceColor, TheChessboard } from 'vue3-chessboard'
 import 'vue3-chessboard/style.css'
+import { Engine } from './Engine'
 
 const position = ref<string>('start')
 const orientation = ref<'white' | 'black'>('white')
@@ -41,10 +46,11 @@ let game: Chess = new Chess()
 let board: ChessboardApi
 let ground: ChessgroundApi
 let state: BoardState
+let engine: Engine
 
 function getPossibleMoves(): DrawShape[] {
   if (game.turn() === 'b') return [];
-  return game.moves({ verbose: true }).map(move => ({ orig: move.to, brush: 'yellow' }));
+  return game.moves({ verbose: true }).map(move => ({ orig: move.to, brush: 'green' }));
 }
 
 const onBoardCreated = (newBoard: ChessboardApi) => {
@@ -52,10 +58,24 @@ const onBoardCreated = (newBoard: ChessboardApi) => {
   ground = (board as any).board
   state = (board as any).boardState
   game = (board as any).game
+  engine = new Engine(board)
 }
 
 const onMove = (move: Move) => {
   console.log('move', move)
+  const history = board?.getHistory(true);
+  const moves = history?.map((move) => {
+    if (typeof move === 'object') {
+      return move.lan;
+    } else {
+      return move;
+    }
+  });
+
+  if (moves) {
+    engine?.sendPosition(moves.join(' '));
+  }
+  
   ground.setAutoShapes(getPossibleMoves())
 }
 
