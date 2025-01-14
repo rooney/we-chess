@@ -1,9 +1,10 @@
 <template>
   <div class="chess-game">
     <TheChessboard
-      :position="position"
-      @onMove="onMove"
-      :orientation="orientation"
+      @move="onMove"
+      @checkmate="onCheckmate"
+      @stalemate="onStalemate"
+      :boardConfig="{ coordinates: true }"
     />
     <div class="controls">
       <button @click="resetGame">Reset Game</button>
@@ -17,30 +18,27 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { TheChessboard } from 'vue3-chessboard'
+import { Move } from 'chess.js'
+import { TheChessboard, type PieceColor } from 'vue3-chessboard'
 import 'vue3-chessboard/style.css'
-
-interface ChessMove {
-  fen: string
-  checkmate: boolean
-  stalemate: boolean
-  turn: 'w' | 'b'
-}
 
 const position = ref<string>('start')
 const orientation = ref<'white' | 'black'>('white')
 const gameOver = ref<boolean>(false)
 const gameOverMessage = ref<string>('')
 
-const onMove = (move: ChessMove): void => {
-  position.value = move.fen
-  if (move.checkmate) {
-    gameOver.value = true
-    gameOverMessage.value = `Checkmate! ${move.turn === 'w' ? 'Black' : 'White'} wins!`
-  } else if (move.stalemate) {
-    gameOver.value = true
-    gameOverMessage.value = 'Stalemate!'
-  }
+const onMove = (move: Move) => {
+  console.log('move', move);
+}
+
+const onCheckmate = (checkmatedColor: PieceColor) => {
+  gameOver.value = true
+  gameOverMessage.value = `Checkmate! ${checkmatedColor === 'white' ? 'Black' : 'White'} wins!`
+}
+
+const onStalemate = () => {
+  gameOver.value = true
+  gameOverMessage.value = 'Stalemate!'
 }
 
 const resetGame = (): void => {
