@@ -1,14 +1,23 @@
 <template>
   <div class="chess-game">
     <TheChessboard
+      :player-color="'grey' as MoveableColor /* in ambiguous chess, you move opposite color's pieces,
+                                                hence grey */"
+      :boardConfig="{
+        coordinates: true,
+        drawable: {
+          enabled: true,
+          eraseOnClick: false,
+          autoShapes: drawReachableSquares(),
+        },
+        events: {
+          select: onClick,
+        }
+      }"
       @board-created="onBoardCreated"
-      @move="onMove"
       @checkmate="onCheckmate"
       @stalemate="onStalemate"
-      :boardConfig="boardConfig"
-      :reactive-config="true"
-      :player-color="playerColor"
-      />
+    />
     <div class="controls">
       <button @click="resetGame">Reset Game</button>
       <button @click="flipBoard">Flip Board</button>
@@ -20,7 +29,7 @@
 </template>
 
 <script setup lang="ts">
-import type { Move, PieceSymbol, Square } from 'chess.js'
+import type { PieceSymbol } from 'chess.js'
 import type { Api as ChessgroundApi } from 'chessground/api'
 import type { DrawShape } from 'chessground/draw'
 import type { Key } from 'chessground/types'
@@ -37,80 +46,104 @@ const gameOver = ref<boolean>(false)
 const gameOverMessage = ref<string>('')
 
 const game = new Chess()
-let board: ChessboardApi
-let ground: ChessgroundApi
-let engine: Engine = new Engine(game);
+const engine: Engine = new Engine()
+let board: ChessboardApi | undefined
+let ground: ChessgroundApi | undefined
+let pick:
+  { squares: Map<Key, Key[]>, primed?: Key } | /* pick a square you want to occupy */
+  { antipieces: Key[], antisquare: Key }     | /* pick an opponent's piece (antipiece) to be moved ...
+                                                  ... to the square chosen by the opponent (antisquare) */
+  null // nothing to pick (opponent's turn)
+  = { squares: getReachableSquares() }
 
-let selectedTarget = '';
-function getPossibleMoves(): DrawShape[] {
-  console.log('I want to move to', selectedTarget)
-  if (game.turn() === 'b') return [];
-  return engine.getPossibleTargets().entries().map(([coord, froms]) => {
+function getReachableSquares(): Map<Key, Key[]> {
+  const targets = new Map<Key, Key[]>();
+  ([PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING] as PieceSymbol[]).forEach(piece => 
+    game.moves({ piece, verbose: true }).forEach(move => {
+      if (!targets.get(move.to)) targets.set(move.to, [])
+      targets.get(move.to)!.push(move.from)
+    }))
+  return targets;
+}
+
+function drawReachableSquares(): DrawShape[] {
+  const shapes: DrawShape[] = getReachableSquares().entries().map(([square, origins]) => {
     return {
-      orig: coord as Key,
-      brush: froms.length > 1 && coord !== selectedTarget ? 'yellow' : 'green',
-      label: froms.length > 1 ? { text: '!' } : undefined,
+      orig: square as Key,
+      brush: pick && 'primed' in pick && pick.primed == square ? 'green' : 'yellow',
+      label: origins.length > 1 ? { text: '!' } : undefined,
     }
   }).toArray();
+  if (pick && 'primed' in pick) {
+    const targetSquare = pick.primed as Key
+    const ablePieces = pick.squares.get(targetSquare) || []
+    ablePieces.forEach(piece => {
+      shapes.push({
+        orig: piece,
+        dest: targetSquare,
+        brush: 'green',
+        modifiers: { hilite: true, lineWidth: 6 },
+      })
+    })
+  }
+  return shapes;
+}
+
+function markAntipieces(): DrawShape[] {
+  if (pick && 'antipieces' in pick) {
+    const antisquare = pick.antisquare
+    return pick.antipieces.flatMap(antipiece => [
+      { brush: 'green', orig: antipiece },
+      { brush: 'green', orig: antipiece, dest: antisquare, modifiers: { hilite: true, lineWidth: 6 }}
+    ])
+  }
+  return []
 }
 
 const onBoardCreated = (newBoard: ChessboardApi) => {
   board = newBoard;
   (board as any).game = game
   ground = (board as any).board
-  engine = new Engine(game, board, ground)
 }
 
-const onSelect = (coord: Key) => {
-  if (game.turn() === 'b') {
-    console.log('engine options', engine.options)
-    engine.options.forEach((option) => {
-      if (coord === option) {
-        board.move({from: coord, to: engine.target!})
-      }
+const onClick = (clicked: Key) => {
+  if (!pick) return
+  if ('primed' in pick && pick.primed === clicked) {
+    const currentFen = game.fen()
+    const ablePieces = pick.squares.get(clicked) || []
+    const moveOptions = ablePieces.map(piece => `${piece}${clicked}`)
+    const timePerOption = 2000 / moveOptions.length
+
+    pick = null
+    ground?.setAutoShapes([])
+
+    Promise.all(moveOptions.map(move => engine.analyze(currentFen, move, timePerOption)))
+    .then(engineOutput => {
+      console.log('engine out:', engineOutput);
+      return engineOutput.sort((a, b) => a.score - b.score)[0]
     })
-    return;
+    .then(({ move, countermove }) => {
+      board?.move(move)
+      const antisquare = countermove.slice(2) as Key
+      const antipieces = getReachableSquares().get(antisquare) || []
+      pick = { antipieces, antisquare }
+      ground?.setAutoShapes(markAntipieces())
+    })
+    return
   }
-  const options = engine.getPossibleTargets().get(coord)
-  if (!options) return
-  if (options.length === 1) {selectedTarget = ''; return board.move({ from: options[0], to: coord })}
-  if (coord === selectedTarget) return choose(coord, options)
-
-  let marks: DrawShape[] = options.flatMap(option => [{
-    orig: option,
-    dest: coord,
-    brush: 'green',
-    modifiers: {
-      hilite: true,
-      lineWidth: 6,
-    },
-  }])
-
-  selectedTarget = coord
-  marks = marks.concat(getPossibleMoves())
-  ground.setAutoShapes(marks.concat(getPossibleMoves()))
-}
-
-const choose = (target: Key, options: Key[]) => {
-  board.move({ to: target, from: options[Math.floor(Math.random() * options.length)] })
-  selectedTarget = ''
-}
-
-const onMove = (move: Move|string) => {
-  const history = board?.getHistory(true);
-  const moves = history?.map((move) => {
-    if (typeof move === 'object') {
-      return move.lan;
-    } else {
-      return move;
+  if ('squares' in pick) {
+    if (pick.squares.has(clicked)) {
+      pick = { squares: pick.squares, primed: clicked }
+      ground?.setAutoShapes(drawReachableSquares())
     }
-  });
-
-  if (moves) {
-    engine?.sendPosition(moves.join(' '));
+    return
   }
-
-  ground.setAutoShapes(getPossibleMoves())
+  if ('antipieces' in pick && pick.antipieces.includes(clicked)) {
+    board?.move({ from: clicked, to: pick.antisquare })
+    pick = { squares: getReachableSquares() }
+    ground?.setAutoShapes(drawReachableSquares())
+    return
+  }
 }
 
 const onCheckmate = (checkmatedColor: PieceColor) => {
@@ -137,19 +170,6 @@ onMounted(() => {
   console.log('Chess game component mounted')
 })
 
-const boardConfig = {
-  coordinates: true,
-  drawable: {
-    enabled: true,
-    eraseOnClick: false,
-    autoShapes: getPossibleMoves(),
-  },
-  events: {
-    select: onSelect,
-  }
-}
-
-const playerColor = 'none' as MoveableColor
 </script>
 
 <style scoped>
