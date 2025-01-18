@@ -36,8 +36,8 @@ import type { Key } from 'chessground/types'
 import type { BoardApi as ChessboardApi, MoveableColor, PieceColor } from 'vue3-chessboard'
 import { Chess, BISHOP, KING, KNIGHT, PAWN, QUEEN, ROOK } from 'chess.js'
 import { TheChessboard } from 'vue3-chessboard'
-import { ref, onMounted } from 'vue'
 import { Engine } from './Engine'
+import { ref, type Ref, watch } from 'vue'
 import 'vue3-chessboard/style.css'
 
 const position = ref<string>('start')
@@ -45,16 +45,43 @@ const orientation = ref<'white' | 'black'>('white')
 const gameOver = ref<boolean>(false)
 const gameOverMessage = ref<string>('')
 
+type PickSquare = { squares: Map<Key, Key[]> }              /* pick a square you want to occupy */
+type PickSquarePrimed = PickSquare & { primed: Key }       /* primed: click again to confirm */
+type PickAntipiece = { antipieces: Key[], antisquare: Key } /* pick an opponent's piece to */
+type OpponentsTurn = { wait: true }
+type State = PickSquare | PickSquarePrimed | PickAntipiece | OpponentsTurn
+
 const game = new Chess()
 const engine: Engine = new Engine()
 let board: ChessboardApi | undefined
 let ground: ChessgroundApi | undefined
-let pick:
-  { squares: Map<Key, Key[]>, primed?: Key } | /* pick a square you want to occupy */
-  { antipieces: Key[], antisquare: Key }     | /* pick an opponent's piece (antipiece) to be moved ...
-                                                  ... to the square chosen by the opponent (antisquare) */
-  null // nothing to pick (opponent's turn)
-  = { squares: getReachableSquares() }
+let state: Ref<State> = ref({ squares: getReachableSquares() })
+
+function setState(newState: State) {
+  state.value = newState
+}
+
+function isSquaring(state: Ref<any>): state is Ref<PickSquare> {
+  return 'squares' in state.value
+}
+
+function isPrimed(state: Ref<any>): state is Ref<PickSquarePrimed> {
+  return 'primed' in state.value
+}
+
+function isAntipiecing(state: Ref<any>): state is Ref<PickAntipiece> {
+  return 'antipieces' in state.value
+}
+
+function isOpponentsTurn(state: Ref<any>): state is Ref<OpponentsTurn> {
+  return state.value === null
+}
+
+watch(state, () => ground?.setAutoShapes(
+  isSquaring(state) ? drawReachableSquares() :
+  isAntipiecing(state) ? markAntipieces() :
+  []
+))
 
 function getReachableSquares(): Map<Key, Key[]> {
   const targets = new Map<Key, Key[]>();
@@ -67,16 +94,15 @@ function getReachableSquares(): Map<Key, Key[]> {
 }
 
 function drawReachableSquares(): DrawShape[] {
-  const shapes: DrawShape[] = getReachableSquares().entries().map(([square, origins]) => {
-    return {
-      orig: square as Key,
-      brush: pick && 'primed' in pick && pick.primed == square ? 'green' : 'yellow',
-      label: origins.length > 1 ? { text: '!' } : undefined,
-    }
-  }).toArray();
-  if (pick && 'primed' in pick) {
-    const targetSquare = pick.primed as Key
-    const ablePieces = pick.squares.get(targetSquare) || []
+  const shapes: DrawShape[] = getReachableSquares().entries().map(([square, origins]) => ({
+    orig: square,
+    brush: square === (isPrimed(state) && state.value.primed) ? 'green' : 'yellow',
+    label: origins.length > 1 ? { text: '!' } : undefined,
+  })).toArray();
+  
+  if (isPrimed(state)) {
+    const targetSquare = state.value.primed
+    const ablePieces = state.value.squares.get(targetSquare) || []
     ablePieces.forEach(piece => {
       shapes.push({
         orig: piece,
@@ -90,11 +116,13 @@ function drawReachableSquares(): DrawShape[] {
 }
 
 function markAntipieces(): DrawShape[] {
-  if (pick && 'antipieces' in pick) {
-    const antisquare = pick.antisquare
-    return pick.antipieces.flatMap(antipiece => [
+  if (isAntipiecing(state)) {
+    return state.value.antipieces.flatMap(antipiece => [
       { brush: 'green', orig: antipiece },
-      { brush: 'green', orig: antipiece, dest: antisquare, modifiers: { hilite: true, lineWidth: 6 }}
+      { brush: 'green', orig: antipiece, dest: state.value.antisquare, modifiers: {
+        hilite: true, 
+        lineWidth: 6,
+      }}
     ])
   }
   return []
@@ -106,43 +134,30 @@ const onBoardCreated = (newBoard: ChessboardApi) => {
   ground = (board as any).board
 }
 
-const onClick = (clicked: Key) => {
-  if (!pick) return
-  if ('primed' in pick && pick.primed === clicked) {
+const onClick = (clicked: Key): void => {
+  if (isOpponentsTurn(state)) return
+  if (isPrimed(state) && state.value.primed === clicked) {
     const currentFen = game.fen()
-    const ablePieces = pick.squares.get(clicked) || []
+    const ablePieces = state.value.squares.get(clicked) || []
     const moveOptions = ablePieces.map(piece => `${piece}${clicked}`)
     const timePerOption = 2000 / moveOptions.length
 
-    pick = null
-    ground?.setAutoShapes([])
-
     Promise.all(moveOptions.map(move => engine.analyze(currentFen, move, timePerOption)))
-    .then(engineOutput => {
-      console.log('engine out:', engineOutput);
-      return engineOutput.sort((a, b) => a.score - b.score)[0]
-    })
+    .then(engineOutput => engineOutput.sort((a, b) => a.score - b.score)[0])
     .then(({ move, countermove }) => {
       board?.move(move)
       const antisquare = countermove.slice(2) as Key
       const antipieces = getReachableSquares().get(antisquare) || []
-      pick = { antipieces, antisquare }
-      ground?.setAutoShapes(markAntipieces())
+      setState({ antipieces, antisquare })
     })
-    return
+    return setState({ wait: true})
   }
-  if ('squares' in pick) {
-    if (pick.squares.has(clicked)) {
-      pick = { squares: pick.squares, primed: clicked }
-      ground?.setAutoShapes(drawReachableSquares())
-    }
-    return
+  if (isSquaring(state) && state.value.squares.has(clicked)) {
+    return setState({ ...state.value, primed: clicked })
   }
-  if ('antipieces' in pick && pick.antipieces.includes(clicked)) {
-    board?.move({ from: clicked, to: pick.antisquare })
-    pick = { squares: getReachableSquares() }
-    ground?.setAutoShapes(drawReachableSquares())
-    return
+  if (isAntipiecing(state) && state.value.antipieces.includes(clicked)) {
+    board?.move({ from: clicked, to: state.value.antisquare })
+    return setState({ squares: getReachableSquares() })
   }
 }
 
@@ -165,10 +180,6 @@ const resetGame = (): void => {
 const flipBoard = (): void => {
   orientation.value = orientation.value === 'white' ? 'black' : 'white'
 }
-
-onMounted(() => {
-  console.log('Chess game component mounted')
-})
 
 </script>
 
